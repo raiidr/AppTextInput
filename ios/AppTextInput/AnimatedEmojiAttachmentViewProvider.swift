@@ -183,8 +183,9 @@ private final class AnimatedEmojiAttachmentContainerView: UIView {
     fallbackLabel.text = attachment.fallback
     // Use the Apple Color Emoji font explicitly so the fallback label always
     // shows a colored emoji, even when the system font cascade is not active.
-    fallbackLabel.font = UIFont(name: "AppleColorEmoji", size: max(12, attachment.bounds.height * 0.85))
-      ?? UIFont.systemFont(ofSize: max(12, attachment.bounds.height * 0.85))
+    let fontSize = max(12, attachment.bounds.height * 0.85)
+    fallbackLabel.font = UIFont(name: "AppleColorEmoji", size: fontSize)
+      ?? UIFont.systemFont(ofSize: fontSize)
     fallbackLabel.textAlignment = .center
     fallbackLabel.adjustsFontSizeToFitWidth = true
     fallbackLabel.minimumScaleFactor = 0.5
