@@ -228,12 +228,13 @@ static UIColor *_Nullable UIColorFromOptionalDouble(const std::optional<double> 
                    shortcode:args[1]
                     fallback:args[2]
                      assetKey:args[3]
-                        start:[args[4] intValue]
-                          end:[args[5] intValue]];
+              animationSource:args[4]
+                        start:[args[5] integerValue]
+                          end:[args[6] integerValue]];
   } else if ([commandName isEqualToString:@"replaceRange"]) {
     NSInteger start = [args[0] integerValue];
     NSInteger length = [args[1] integerValue];
-    [view replaceRangeCommand:NSMakeRange(start, length)
+    [view replaceRangeCommand:NSMakeRange((NSUInteger)start, (NSUInteger)length)
                          text:args[2]
                    entitiesJson:args[3]];
   }

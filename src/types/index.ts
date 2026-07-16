@@ -130,11 +130,11 @@ export type AppTextInputProps = Omit<
   animationSources?: AnimatedEmojiSources;
   /**
    * Optional callback that the text input invokes when the user is typing a
-   * known shortcode. Consumers can use this to preload the Lottie source so
-   * the animated emoji is ready by the time the shortcode is completed,
-   * avoiding a temporary fallback icon.
+   * known shortcode or inserting an emoji from a picker. Consumers should
+   * return the cached Lottie source for the given id so the text input can
+   * pass it directly to the native layer and avoid a network request.
    */
-  preloadAnimationSource?: (id: string) => Promise<void>;
+  preloadAnimationSource?: (id: string) => Promise<AnimatedEmojiSource | null>;
   enableAnimatedEmoji?: boolean;
   animateWhileBlurred?: boolean;
   respectReducedMotion?: boolean;
@@ -151,7 +151,7 @@ export type AppTextInputRef = {
   clear: () => void;
   isFocused: () => boolean;
   setSelection: (start: number, end?: number) => void;
-  insertAnimatedEmoji: (emoji: AnimatedEmojiDefinition, range?: TextRange) => void;
+  insertAnimatedEmoji: (emoji: AnimatedEmojiDefinition, range?: TextRange) => Promise<void>;
   replaceRange: (range: TextRange, text: string, entities?: AppTextEntity[]) => void;
   getValue: () => AppTextInputValue;
 };

@@ -538,24 +538,37 @@ const AppTextInputImpl: ForwardRefRenderFunction<AppTextInputRef, AppTextInputPr
           });
         }
       },
-      insertAnimatedEmoji: (emoji, range) => {
+      insertAnimatedEmoji: async (emoji, range) => {
         const insertionRange = range ?? {
           start: internalSelection.start,
           end: internalSelection.end,
         };
+
+        let source = animationSources?.[emoji.id];
+        if (!source && preloadAnimationSource) {
+          try {
+            source = (await preloadAnimationSource(emoji.id)) ?? undefined;
+          } catch {
+            source = undefined;
+          }
+        }
+
         if (__DEV__) {
           console.log('AppTextInput insertAnimatedEmoji', {
             useNative,
             emoji,
             insertionRange,
+            hasSource: source != null,
           });
         }
+
         if (useNative) {
           dispatchNativeCommand(nativeRef, 'insertAnimatedEmoji', [
             emoji.id,
             emoji.shortcode,
             emoji.fallback,
             emoji.assetKey,
+            source ? JSON.stringify(source) : '',
             insertionRange.start,
             insertionRange.end,
           ]);
@@ -598,7 +611,15 @@ const AppTextInputImpl: ForwardRefRenderFunction<AppTextInputRef, AppTextInputPr
       },
       getValue: () => documentToValue(document),
     }),
-    [document, emitChange, internalSelection, isFocused, useNative]
+    [
+      document,
+      emitChange,
+      internalSelection,
+      isFocused,
+      useNative,
+      animationSources,
+      preloadAnimationSource,
+    ]
   );
 
   const effectiveSelection = useMemo(

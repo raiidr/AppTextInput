@@ -38,11 +38,17 @@ public class AnimatedEmojiAttachmentViewProvider: NSTextAttachmentViewProvider {
     return textAttachment?.bounds ?? CGRect(x: 0, y: 0, width: 24, height: 24)
   }
 
+  /// Tracks whether `loadView()` has already run. Reading `self.view` inside an
+  /// overridden `loadView()` can recurse because the default `view` getter calls
+  /// `loadView()` when the backing view is nil, which causes a stack overflow.
+  private var didLoadView = false
+
   public override func loadView() {
-    guard view == nil else {
-      log("loadView early return, view already set")
+    guard !didLoadView else {
+      log("loadView early return, view already loaded")
       return
     }
+    didLoadView = true
     log("loadView called textAttachment=\(String(describing: type(of: textAttachment)))")
     guard let attachment = textAttachment as? AnimatedEmojiAttachment else {
       log("loadView: attachment is not AnimatedEmojiAttachment")
@@ -183,8 +189,9 @@ private final class AnimatedEmojiAttachmentContainerView: UIView {
     fallbackLabel.text = attachment.fallback
     // Use the Apple Color Emoji font explicitly so the fallback label always
     // shows a colored emoji, even when the system font cascade is not active.
-    fallbackLabel.font = UIFont(name: "AppleColorEmoji", size: max(12, attachment.bounds.height * 0.85))
-      ?? UIFont.systemFont(ofSize: max(12, attachment.bounds.height * 0.85))
+    let fontSize = max(12, attachment.bounds.height * 0.85)
+    fallbackLabel.font = UIFont(name: "AppleColorEmoji", size: fontSize)
+      ?? UIFont.systemFont(ofSize: fontSize)
     fallbackLabel.textAlignment = .center
     fallbackLabel.adjustsFontSizeToFitWidth = true
     fallbackLabel.minimumScaleFactor = 0.5

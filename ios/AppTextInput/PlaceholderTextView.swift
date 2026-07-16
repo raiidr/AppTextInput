@@ -69,7 +69,19 @@ final class PlaceholderTextView: UITextView {
   }
 
   private func updatePlaceholderVisibility() {
-    placeholderLabel.isHidden = !(text?.isEmpty ?? true)
+    // Use the text storage length rather than the plain `text` string. This
+    // keeps the placeholder hidden when the only content is an inline
+    // NSTextAttachment (which is represented by the object replacement character
+    // and can be missed by `text.isEmpty` in some TextKit 2 layout paths).
+      let shouldHide = (textStorage.length ?? 0) > 0
+    if placeholderLabel.isHidden != shouldHide {
+      placeholderLabel.isHidden = shouldHide
+    }
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    updatePlaceholderVisibility()
   }
 
   @objc private func textDidChange() {

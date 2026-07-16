@@ -112,6 +112,7 @@ export interface NativeCommands {
     shortcode: string,
     fallback: string,
     assetKey: string,
+    animationSource: string,
     start: Int32,
     end: Int32
   ) => void;

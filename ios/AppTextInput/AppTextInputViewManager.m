@@ -4,12 +4,24 @@
 #import <React/RCTUIManager.h>
 #import <React/RCTViewManager.h>
 #import <React/UIView+React.h>
+#import <objc/message.h>
 
 #if __has_include(<AppTextInput/AppTextInput-Swift.h>)
   #import <AppTextInput/AppTextInput-Swift.h>
 #else
   #import "AppTextInput-Swift.h"
 #endif
+
+// Forward declaration for optional Swift-exposed API to avoid compile-time selector errors.
+@interface AppTextInputView (AnimatedEmoji)
+- (void)insertAnimatedEmoji:(nonnull NSString *)emojiId
+                  shortcode:(nonnull NSString *)shortcode
+                   fallback:(nonnull NSString *)fallback
+                   assetKey:(nonnull NSString *)assetKey
+            animationSource:(nonnull NSString *)animationSourceJson
+                       start:(NSInteger)start
+                         end:(NSInteger)end;
+@end
 
 @implementation AppTextInputViewManager
 
@@ -179,7 +191,7 @@ RCT_EXPORT_METHOD(setSelection:(nonnull NSNumber *)reactTag start:(nonnull NSNum
   [self.bridge.uiManager addUIBlock:^(__unused RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {
     AppTextInputView *view = viewRegistry[reactTag];
     if ([view isKindOfClass:[AppTextInputView class]]) {
-      [view setSelectionCommand:[start intValue] end:[end intValue]];
+      [view setSelectionCommand:[start integerValue] end:[end integerValue]];
     }
   }];
 }
@@ -189,12 +201,23 @@ RCT_EXPORT_METHOD(insertAnimatedEmoji:(nonnull NSNumber *)reactTag
                   shortcode:(nonnull NSString *)shortcode
                   fallback:(nonnull NSString *)fallback
                   assetKey:(nonnull NSString *)assetKey
+                  animationSource:(nonnull NSString *)animationSourceJson
                   start:(nonnull NSNumber *)start
                   end:(nonnull NSNumber *)end) {
   [self.bridge.uiManager addUIBlock:^(__unused RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {
     AppTextInputView *view = viewRegistry[reactTag];
     if ([view isKindOfClass:[AppTextInputView class]]) {
-      [view insertAnimatedEmoji:emojiId shortcode:shortcode fallback:fallback assetKey:assetKey start:[start intValue] end:[end intValue]];
+      if ([view respondsToSelector:@selector(insertAnimatedEmoji:shortcode:fallback:assetKey:animationSource:start:end:)]) {
+        [view insertAnimatedEmoji:emojiId
+                        shortcode:shortcode
+                         fallback:fallback
+                         assetKey:assetKey
+                  animationSource:animationSourceJson
+                            start:[start integerValue]
+                              end:[end integerValue]];
+      } else {
+        RCTLogInfo(@"[AppTextInputViewManager] insertAnimatedEmoji selector not available on AppTextInputView");
+      }
     }
   }];
 }
@@ -207,7 +230,7 @@ RCT_EXPORT_METHOD(replaceRange:(nonnull NSNumber *)reactTag
   [self.bridge.uiManager addUIBlock:^(__unused RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {
     AppTextInputView *view = viewRegistry[reactTag];
     if ([view isKindOfClass:[AppTextInputView class]]) {
-      NSRange range = NSMakeRange([start intValue], [length intValue]);
+      NSRange range = NSMakeRange((NSUInteger)[start integerValue], (NSUInteger)[length integerValue]);
       [view replaceRangeCommand:range text:text entitiesJson:entitiesJson];
     }
   }];

@@ -319,17 +319,30 @@ public class AppTextInputCoreView: UIView {
     applySelection()
   }
 
-  @objc
+  // Objective-C callers use `animationSource:`; Swift keeps the more descriptive
+  // internal name `animationSourceJson`.
+  @objc(insertAnimatedEmoji:shortcode:fallback:assetKey:animationSource:start:end:)
   public func insertAnimatedEmoji(
     _ id: String,
     shortcode: String,
     fallback: String,
     assetKey: String,
+    animationSource animationSourceJson: String,
     start: Int,
     end: Int
   ) {
     let range = NSRange(location: min(start, end), length: abs(end - start))
-    log("insertAnimatedEmoji id=\(id) range=\(range.location),\(range.length) assetKey=\(assetKey)")
+    let hasSource = !animationSourceJson.isEmpty
+    log("insertAnimatedEmoji id=\(id) range=\(range.location),\(range.length) assetKey=\(assetKey) hasSource=\(hasSource)")
+
+    // If JS passed the cached Lottie source directly, seed the in-memory source
+    // map so rebuildAttributedText can use it immediately without a URL fetch.
+    if hasSource,
+       let data = animationSourceJson.data(using: .utf8),
+       let source = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+      animationSources[id] = source
+    }
+
     // Entity offsets are relative to the inserted text because replaceRangeCommand
     // shifts them by the replacement range location.
     replaceRangeCommand(range, text: "\u{FFFC}", entitiesJson: encodeEntities([
