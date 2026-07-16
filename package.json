@@ -1,0 +1,95 @@
+{
+  "name": "@app/app-text-input",
+  "version": "0.1.0",
+  "description": "React Native TextInput with inline animated Lottie emoji",
+  "main": "lib/commonjs/index",
+  "module": "lib/module/index",
+  "types": "lib/typescript/index.d.ts",
+  "react-native": "src/index",
+  "source": "src/index",
+  "files": [
+    "src",
+    "lib",
+    "android",
+    "ios",
+    "cpp",
+    "*.podspec",
+    "!lib/typescript/example",
+    "!ios/build",
+    "!android/build",
+    "!**/__tests__",
+    "!**/__fixtures__",
+    "!**/__mocks__",
+    "!**/.*"
+  ],
+  "scripts": {
+    "test": "jest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"**/*.{js,ts,tsx}\"",
+    "prepack": "bob build",
+    "example": "yarn --cwd example",
+    "build:android": "cd example/android && ./gradlew assembleDebug --no-daemon --console=plain -PreactNativeArchitectures=arm64-v8a",
+    "build:ios": "cd example/ios && xcodebuild -workspace AppTextInputExample.xcworkspace -scheme AppTextInputExample -configuration Debug -sdk iphonesimulator CC=clang CPLUSPLUS=clang++ LD=clang LDPLUSPLUS=clang++ GCC_OPTIMIZATION_LEVEL=0 GCC_PRECOMPILE_PREFIX_HEADER=YES ASSETCATALOG_COMPILER_OPTIMIZATION=time DEBUG_INFORMATION_FORMAT=dwarf COMPILER_INDEX_STORE_ENABLE=NO"
+  },
+  "keywords": [
+    "react-native",
+    "ios",
+    "android",
+    "text-input",
+    "lottie",
+    "animated-emoji"
+  ],
+  "repository": "https://github.com/raiidr/raiidr",
+  "homepage": "https://github.com/raiidr/raiidr#readme",
+  "author": "Raiidr Team",
+  "license": "MIT",
+  "private": true,
+  "expo": {
+    "autolinking": {
+      "ios": {
+        "podspec": "AppTextInput.podspec"
+      },
+      "android": {
+        "sourceDir": "android"
+      }
+    }
+  },
+  "peerDependencies": {
+    "react": ">=19.0.0",
+    "react-native": ">=0.79.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "@types/react": "~19.0.10",
+    "jest": "^29.7.0",
+    "react": "19.0.0",
+    "react-native": "0.79.6",
+    "react-native-builder-bob": "^0.36.0",
+    "typescript": "~5.8.3"
+  },
+  "jest": {
+    "preset": "react-native",
+    "modulePathIgnorePatterns": [
+      "<rootDir>/example/node_modules",
+      "<rootDir>/lib/"
+    ],
+    "testPathIgnorePatterns": [
+      "<rootDir>/example/node_modules",
+      "<rootDir>/lib/"
+    ]
+  },
+  "react-native-builder-bob": {
+    "source": "src",
+    "output": "lib",
+    "targets": [
+      "commonjs",
+      "module",
+      [
+        "typescript",
+        {
+          "project": "tsconfig.build.json"
+        }
+      ]
+    ]
+  }
+}

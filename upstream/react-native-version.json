@@ -1,0 +1,12 @@
+{
+  "version": "0.79.6",
+  "commitHash": "",
+  "referencedSourceFiles": [
+    "ReactAndroid/src/main/java/com/facebook/react/views/textinput/ReactTextInputManager.java",
+    "ReactAndroid/src/main/java/com/facebook/react/views/text/ReactTextView.java",
+    "React/Fabric/Mounting/ComponentViews/TextInput/RCTTextInputComponentView.mm",
+    "ReactCommon/react/renderer/components/textinput/"
+  ],
+  "lastUpstreamReview": "2026-07-15",
+  "notes": "Pinned to the version used by the Raiidr app. The exact commit hash should be recorded after the React Native source is fetched for the upstream diff script."
+}
