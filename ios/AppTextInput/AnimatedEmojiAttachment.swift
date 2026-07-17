@@ -1,9 +1,9 @@
 import UIKit
 
-// Use a public UTI so the system reliably resolves the registered view provider.
-// Custom UTIs can be ignored by TextKit on some iOS 16 devices, which causes the
-// generic document placeholder to render instead of the live Lottie view.
-public let AnimatedEmojiAttachmentFileType = "public.item"
+// The attachment carries PNG fallback contents, so the file type must describe
+// those contents. A nil content payload creates an attachment without document
+// contents and can leave `fileType` nil even when a UTI is supplied to init.
+public let AnimatedEmojiAttachmentFileType = "public.png"
 
 @objc
 public class AnimatedEmojiAttachment: NSTextAttachment {
@@ -26,8 +26,13 @@ public class AnimatedEmojiAttachment: NSTextAttachment {
     self.fallback = fallback
     self.assetKey = assetKey
     self.animationSource = animationSource
-    super.init(data: nil, ofType: AnimatedEmojiAttachmentFileType)
+    let fallbackData = Self.renderFallbackImage(fallback, bounds: bounds).pngData() ?? Data()
+    super.init(data: fallbackData, ofType: AnimatedEmojiAttachmentFileType)
     self.bounds = bounds
+
+    #if DEBUG
+    log("AnimatedEmojiAttachment.init fileTypeConstant=\(AnimatedEmojiAttachmentFileType) fileTypeAfterSuper=\(String(describing: fileType)) contentsSet=\(contents != nil)")
+    #endif
 
     if #available(iOS 15.0, *) {
       // Explicitly opt-in to the view-provider path. Although the default is
@@ -77,11 +82,10 @@ public class AnimatedEmojiAttachment: NSTextAttachment {
       textLayoutManager: layoutManager,
       location: location
     )
-    // iOS does not reliably call loadView() for custom NSTextAttachmentViewProvider
-    // subclasses. Force it here so the container view is created and the animation
-    // starts loading immediately when the attachment is first laid out.
-    provider.loadView()
-    log("viewProvider entityId=\(entityId) forcedLoadView viewSet=\(provider.view != nil)")
+    // TextKit owns the provider view lifecycle. In particular, loadView() must
+    // be invoked by TextKit after it has attached the provider to the layout;
+    // calling it here creates the view before TextKit can size and host it.
+    log("viewProvider entityId=\(entityId) providerCreated")
     return provider
   }
 
@@ -91,5 +95,21 @@ public class AnimatedEmojiAttachment: NSTextAttachment {
     print(fullMessage)
     AppTextInputLogger.emit(level: "info", message: fullMessage)
     #endif
+  }
+
+  private static func renderFallbackImage(_ fallback: String, bounds: CGRect) -> UIImage {
+    let size = CGSize(width: max(bounds.width, 1), height: max(bounds.height, 1))
+    let renderer = UIGraphicsImageRenderer(size: size)
+    return renderer.image { _ in
+      let font = UIFont(name: "AppleColorEmoji", size: size.height * 0.85)
+        ?? UIFont.systemFont(ofSize: size.height * 0.85)
+      let attributes: [NSAttributedString.Key: Any] = [.font: font]
+      let textSize = (fallback as NSString).size(withAttributes: attributes)
+      let origin = CGPoint(
+        x: (size.width - textSize.width) / 2,
+        y: (size.height - textSize.height) / 2
+      )
+      (fallback as NSString).draw(at: origin, withAttributes: attributes)
+    }
   }
 }

@@ -35,21 +35,23 @@ public class AnimatedEmojiAttachmentViewProvider: NSTextAttachmentViewProvider {
     proposedLineFragment: CGRect,
     position: CGPoint
   ) -> CGRect {
-    return textAttachment?.bounds ?? CGRect(x: 0, y: 0, width: 24, height: 24)
+    // Prefer sizing to the current font's line height so the attachment has
+    // a meaningful size in the text layout. Fall back to proposed line fragment.
+    let rect: CGRect
+    if let font = attributes[.font] as? UIFont {
+      let h = max(18, font.lineHeight)
+      rect = CGRect(x: 0, y: (font.descender).rounded(), width: h, height: h)
+    } else {
+      let h = max(18, proposedLineFragment.height)
+      rect = CGRect(x: 0, y: 0, width: h, height: h)
+    }
+    #if DEBUG
+    print("AppTextInputCoreView: attachmentBounds returning \(rect)")
+    #endif
+    return rect
   }
 
-  /// Tracks whether `loadView()` has already run. Reading `self.view` inside an
-  /// overridden `loadView()` can recurse because the default `view` getter calls
-  /// `loadView()` when the backing view is nil, which causes a stack overflow.
-  private var didLoadView = false
-
   public override func loadView() {
-    guard !didLoadView else {
-      log("loadView early return, view already loaded")
-      return
-    }
-    didLoadView = true
-    log("loadView called textAttachment=\(String(describing: type(of: textAttachment)))")
     guard let attachment = textAttachment as? AnimatedEmojiAttachment else {
       log("loadView: attachment is not AnimatedEmojiAttachment")
       view = UIView()
@@ -80,12 +82,12 @@ public class AnimatedEmojiAttachmentViewProvider: NSTextAttachmentViewProvider {
         guard let self = self, let containerView = containerView else { return }
 
         do {
-          // Decode the dictionary directly to avoid a round-trip through
-          // JSONSerialization, which can fail on edge-case values and adds
-          // unnecessary overhead for large Lottie files.
+          // Use Lottie's dictionary initializer instead of JSONDecoder. The
+          // server's Lottie payloads contain some numeric values as strings,
+          // which Lottie's dictionary parser normalizes but JSONDecoder rejects.
           let animation = try LottieAnimation(dictionary: source)
           Self.storeAnimation(animation, for: entityId)
-          self.log("loadView: decoded source animation for \(entityId), applying")
+          self.log("loadView: decoded source animation for \(entityId) bounds=\(animation.bounds), applying")
           DispatchQueue.main.async {
             containerView.showAnimation(animation)
           }
@@ -141,9 +143,11 @@ public class AnimatedEmojiAttachmentViewProvider: NSTextAttachmentViewProvider {
       }
 
       do {
+        // Use Lottie's data loader because it handles the server's mixed
+        // numeric/string value representation in Lottie JSON.
         let animation = try LottieAnimation.from(data: data)
         Self.storeAnimation(animation, for: entityId)
-        self.log("loadView: decoded URL animation for \(entityId), applying")
+        self.log("loadView: decoded URL animation for \(entityId) bounds=\(animation.bounds), applying")
         DispatchQueue.main.async {
           containerView.showAnimation(animation)
         }
@@ -179,9 +183,14 @@ public class AnimatedEmojiAttachmentViewProvider: NSTextAttachmentViewProvider {
 private final class AnimatedEmojiAttachmentContainerView: UIView {
   private let fallbackLabel = UILabel()
   private var animationView: LottieAnimationView?
+  private let attachment: AnimatedEmojiAttachment
 
   init(attachment: AnimatedEmojiAttachment) {
+    self.attachment = attachment
     super.init(frame: .zero)
+    contentScaleFactor = UIScreen.main.scale
+    backgroundColor = .clear
+    clipsToBounds = false
     isUserInteractionEnabled = false
     isAccessibilityElement = true
     accessibilityLabel = attachment.shortcode
@@ -203,61 +212,119 @@ private final class AnimatedEmojiAttachmentContainerView: UIView {
     fatalError("init(coder:) has not been implemented")
   }
 
+  override var intrinsicContentSize: CGSize {
+    // TextKit asks the provider for its bounds before it assigns the final
+    // frame. Use the attachment's declared size here instead of the current
+    // bounds (which are zero during the first layout pass).
+    let size = attachment.bounds.size
+    return CGSize(width: max(size.width, 1), height: max(size.height, 1))
+  }
+
   override func layoutSubviews() {
     super.layoutSubviews()
-    fallbackLabel.frame = bounds
-    animationView?.frame = bounds
+    // TextKit may not have sized the container on the first layout pass (e.g.
+    // when showAnimation is called before the text layout completes). Fall back
+    // to the attachment's declared bounds so the fallback label or Lottie view
+    // is still visible and gets corrected once the final size arrives.
+    let layoutBounds = bounds.isEmpty
+      ? CGRect(origin: .zero, size: intrinsicContentSize)
+      : bounds
+    fallbackLabel.frame = layoutBounds
+    animationView?.frame = layoutBounds
+
+    let dynamicFontSize = max(12, layoutBounds.height * 0.85)
+    if abs(fallbackLabel.font.pointSize - dynamicFontSize) > 0.1 {
+      fallbackLabel.font = UIFont(name: "AppleColorEmoji", size: dynamicFontSize)
+        ?? UIFont.systemFont(ofSize: dynamicFontSize)
+    }
+
+    #if DEBUG
+    print("AppTextInputCoreView: layoutSubviews bounds=\(bounds) labelFrame=\(fallbackLabel.frame) animFrame=\(animationView?.frame ?? .zero)")
+    #endif
   }
 
   override func didMoveToWindow() {
     super.didMoveToWindow()
+    #if DEBUG
+    print("AppTextInputCoreView: didMoveToWindow window=\(String(describing: window))")
+    #endif
     if window == nil {
       animationView?.pause()
+      #if DEBUG
+      print("AppTextInputCoreView: animation paused (window nil)")
+      #endif
     } else {
-      animationView?.play()
+      DispatchQueue.main.async { [weak self] in
+        self?.animationView?.isHidden = false
+        self?.animationView?.play()
+        #if DEBUG
+        print("AppTextInputCoreView: animation play() dispatched on next runloop")
+        #endif
+      }
     }
+  }
+
+  override func didMoveToSuperview() {
+    super.didMoveToSuperview()
+    #if DEBUG
+    print("AppTextInputCoreView: didMoveToSuperview superview=\(String(describing: superview))")
+    #endif
+    setNeedsLayout()
+    layoutIfNeeded()
   }
 
   func showAnimation(_ animation: LottieAnimation) {
-    let nextAnimationView = animationView ?? LottieAnimationView(
-      configuration: LottieConfiguration(renderingEngine: .automatic)
-    )
-    if animationView == nil {
-      nextAnimationView.contentMode = .scaleAspectFit
-      nextAnimationView.loopMode = .loop
-      nextAnimationView.backgroundBehavior = .pauseAndRestore
-      nextAnimationView.frame = bounds
-      addSubview(nextAnimationView)
-      animationView = nextAnimationView
-    }
-
-    nextAnimationView.animation = animation
-    fallbackLabel.isHidden = true
-    nextAnimationView.isHidden = false
-    nextAnimationView.play()
-  }
-
-  func showAnimationView(_ nextAnimationView: LottieAnimationView) {
-    guard nextAnimationView.animation != nil else {
-      showFallback()
+    guard Thread.isMainThread else {
+      DispatchQueue.main.async { [weak self] in
+        self?.showAnimation(animation)
+      }
       return
     }
 
-    animationView?.removeFromSuperview()
-    nextAnimationView.configuration = LottieConfiguration(renderingEngine: .automatic)
+    log("showAnimation id=\(attachment.entityId) animationSize=\(animation.bounds.size)")
+
+    let nextAnimationView = LottieAnimationView(
+        animation: animation,
+        configuration: LottieConfiguration(renderingEngine: .mainThread)
+    )
+    nextAnimationView.translatesAutoresizingMaskIntoConstraints = true
+    nextAnimationView.backgroundColor = .clear
+    nextAnimationView.isOpaque = false
     nextAnimationView.contentMode = .scaleAspectFit
     nextAnimationView.loopMode = .loop
     nextAnimationView.backgroundBehavior = .pauseAndRestore
-    nextAnimationView.frame = bounds
+    nextAnimationView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+
+    animationView?.removeFromSuperview()
     addSubview(nextAnimationView)
+    bringSubviewToFront(nextAnimationView)
     animationView = nextAnimationView
+
+    setNeedsLayout()
+    layoutIfNeeded()
+
     fallbackLabel.isHidden = true
-    nextAnimationView.play()
+
+    nextAnimationView.isHidden = false
+    nextAnimationView.currentProgress = 0
+    nextAnimationView.forceDisplayUpdate()
+
+    DispatchQueue.main.async { [weak nextAnimationView] in
+        nextAnimationView?.play(fromProgress: 0, toProgress: 1, loopMode: .loop)
+    }
   }
 
   func showFallback() {
     animationView?.isHidden = true
     animationView?.pause()
     fallbackLabel.isHidden = false
+    bringSubviewToFront(fallbackLabel)
+  }
+
+  private func log(_ message: String) {
+    #if DEBUG
+    let fullMessage = "AppTextInputCoreView: AnimatedEmojiAttachmentContainerView: \(message)"
+    AppTextInputLogger.emit(level: "info", message: fullMessage)
+    #endif
   }
 }

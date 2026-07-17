@@ -1,6 +1,47 @@
 import UIKit
 import Lottie
 
+// Simple, thread-safe file logger for AppTextInput messages.
+fileprivate final class AppTextInputFileLogger {
+  static let shared = AppTextInputFileLogger()
+
+  private let queue = DispatchQueue(label: "com.apptextinput.filelogger", qos: .utility)
+  private let logURL: URL
+  private let dateFormatter: ISO8601DateFormatter = {
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return f
+  }()
+
+  private init() {
+    let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+    self.logURL = caches.appendingPathComponent("AppTextInput.log")
+    // Ensure the file exists so later appends succeed.
+    if !FileManager.default.fileExists(atPath: logURL.path) {
+      FileManager.default.createFile(atPath: logURL.path, contents: nil, attributes: nil)
+    }
+  }
+
+  func log(level: String = "info", message: String) {
+    let ts = dateFormatter.string(from: Date())
+    let line = "[\(ts)] [\(level)] \(message)\n"
+    let data = Data(line.utf8)
+    queue.async { [logURL] in
+      do {
+        let handle = try FileHandle(forWritingTo: logURL)
+        defer { try? handle.close() }
+        try handle.seekToEnd()
+        try handle.write(contentsOf: data)
+      } catch {
+        // Intentionally ignore errors to avoid impacting app behavior.
+      }
+    }
+  }
+
+  // Expose the file URL for debugging or external retrieval if needed.
+  var fileURL: URL { logURL }
+}
+
 /// Lightweight RCTEventEmitter used to forward AppTextInput native logs to the
 /// JavaScript console. Only emits in DEBUG builds and only when a JS listener
 /// is registered, so it has no impact on production performance.
@@ -16,8 +57,9 @@ public class AppTextInputLogger: RCTEventEmitter {
   /// Emits a log event to any JS subscriber. Safe to call from any thread.
   public static func emit(level: String, message: String) {
     #if DEBUG
+    // Forward to JS if available; avoid noisy console printing. Persist to file if no shared instance.
     guard let shared = shared else {
-      NSLog("[AppTextInputLogger] no shared instance, dropping log: %@", message)
+      AppTextInputFileLogger.shared.log(level: level, message: "[AppTextInputLogger] no shared instance, dropping log: \(message)")
       return
     }
     shared.sendEvent(
@@ -82,8 +124,8 @@ public class AppTextInputCoreView: UIView {
 
   public override init(frame: CGRect) {
     super.init(frame: frame)
+    Self.ensureAttachmentProviderRegistered()
     setupTextView()
-    registerAttachmentProvider()
   }
 
   required init?(coder: NSCoder) {
@@ -110,13 +152,37 @@ public class AppTextInputCoreView: UIView {
     ])
   }
 
-  private func registerAttachmentProvider() {
+  private static var didRegisterAttachmentProvider = false
+
+  private static func ensureAttachmentProviderRegistered() {
+    if Thread.isMainThread {
+      Self.registerAttachmentProvider()
+    } else {
+      DispatchQueue.main.sync {
+        Self.registerAttachmentProvider()
+      }
+    }
+  }
+
+  private static func registerAttachmentProvider() {
+    guard !didRegisterAttachmentProvider else { return }
+    didRegisterAttachmentProvider = true
+
     if #available(iOS 15.0, *) {
-      NSTextAttachment.registerViewProviderClass(
-        AnimatedEmojiAttachmentViewProvider.self,
-        forFileType: AnimatedEmojiAttachmentFileType
-      )
-      log("Registered attachment view provider for \(AnimatedEmojiAttachmentFileType)")
+      let types = [
+        AnimatedEmojiAttachmentFileType,
+        "com.apple.uikit.nstextattachment",
+        "public.item",
+        "public.data",
+        "public.json",
+        "public.jpeg"
+      ]
+      for t in types {
+        NSTextAttachment.registerViewProviderClass(AnimatedEmojiAttachmentViewProvider.self, forFileType: t)
+      }
+      #if DEBUG
+      AppTextInputFileLogger.shared.log(level: "info", message: "AppTextInputCoreView: Registered attachment view provider for types: \(types.joined(separator: ","))")
+      #endif
     }
   }
 
@@ -447,42 +513,31 @@ public class AppTextInputCoreView: UIView {
         animationSource: animationSources[entity.id] as? [String: Any],
         bounds: attachmentBounds
       )
-      // Always set a fallback image so the user never sees the generic document
-      // placeholder icon while the Lottie view loads, when TextKit 2 is
-      // unavailable, or if the view provider fails. AnimatedEmojiAttachment
-      // overrides usesTextAttachmentView to true on iOS 16+, so the live
-      // Lottie view still takes priority over this static fallback on the
-      // versions that support NSTextAttachmentViewProvider.
-      attachment.image = Self.renderFallbackImage(entity.fallback, bounds: attachmentBounds)
+
+      if let fileType = attachment.fileType {
+        log("Created attachment fileType=\(fileType) for entityId=\(entity.id) contentsSet=\(attachment.contents != nil)")
+      } else {
+        log("Created attachment has nil fileType for entityId=\(entity.id) contentsSet=\(attachment.contents != nil)")
+      }
+
       let attachmentString = NSAttributedString(attachment: attachment)
-      attributed.replaceCharacters(in: NSRange(location: entity.offset, length: 1), with: attachmentString)
-      attachmentCount += 1
+     attributed.replaceCharacters(in: NSRange(location: entity.offset, length: 1), with: attachmentString)
+     attachmentCount += 1
+
     }
+
     log("rebuildAttributedText textLen=\(currentText.count) entities=\(currentEntities.count) attachments=\(attachmentCount)")
 
-    isApplyingProps = true
-    textView.attributedText = attributed
-    applySelection()
-    isApplyingProps = false
-  }
+isApplyingProps = true
+textView.attributedText = attributed
+applySelection()
 
-  private static func renderFallbackImage(_ fallback: String, bounds: CGRect) -> UIImage {
-    let size = CGSize(width: max(bounds.width, 1), height: max(bounds.height, 1))
-    let renderer = UIGraphicsImageRenderer(size: size)
-    return renderer.image { _ in
-      // The system font does not reliably draw colored emoji glyphs in a manual
-      // graphics context. Use Apple Color Emoji explicitly so the fallback image
-      // is never an invisible blank slot.
-      let font = UIFont(name: "AppleColorEmoji", size: size.height * 0.85)
-        ?? UIFont.systemFont(ofSize: size.height * 0.85)
-      let attributes: [NSAttributedString.Key: Any] = [.font: font]
-      let textSize = (fallback as NSString).size(withAttributes: attributes)
-      let origin = CGPoint(
-        x: (size.width - textSize.width) / 2,
-        y: (size.height - textSize.height) / 2
-      )
-      (fallback as NSString).draw(at: origin, withAttributes: attributes)
-    }
+// Force a layout pass to encourage TextKit 2 to instantiate view providers.
+DispatchQueue.main.async { [weak textView] in
+  textView?.setNeedsLayout()
+  textView?.layoutIfNeeded()
+}
+isApplyingProps = false
   }
 
   private func emojiAttachmentBounds(for font: UIFont) -> CGRect {
@@ -606,8 +661,9 @@ public class AppTextInputCoreView: UIView {
   private func log(_ message: String) {
     #if DEBUG
     let fullMessage = "AppTextInputCoreView: \(message)"
-    print(fullMessage)
-    NSLog("%@", fullMessage)
+    // Write to file to avoid console noise.
+    AppTextInputFileLogger.shared.log(level: "info", message: fullMessage)
+    // Still forward to JS listeners for in-app visibility if needed.
     AppTextInputLogger.emit(level: "info", message: fullMessage)
     #endif
   }
@@ -727,4 +783,3 @@ private func uiAutoCapitalizationType(from value: String?) -> UITextAutocapitali
   default: return .sentences
   }
 }
-
